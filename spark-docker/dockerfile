@@ -2,13 +2,11 @@ FROM apache/spark:3.5.0-scala2.12-java11-python3-r-ubuntu
 
 USER root
 
-# Instala utilitários básicos
 RUN apt-get update && apt-get install -y curl unzip && rm -rf /var/lib/apt/lists/*
 
-# Diretório padrão de libs Spark
 WORKDIR /opt/spark/jars
 
-# Iceberg + AWS + Hadoop deps compatíveis com Spark 3.5 e Scala 2.12
+# Iceberg + AWS + Hadoop for Spark 3.5 e Scala 2.12
 RUN curl -L -O https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/1.6.1/iceberg-spark-runtime-3.5_2.12-1.6.1.jar && \
     curl -L -O https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.20.142/bundle-2.20.142.jar && \
     curl -L -O https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.4.2/hadoop-aws-3.4.2.jar
