@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  spark-master:
+    image: apache/spark:3.5.0-scala2.12-java11-python3-r-ubuntu
+    container_name: spark-master
+    ports:
+      - "8080:8080"  # Spark Master Web UI
+      - "7077:7077"  # Spark Master port
+    environment:
+      - SPARK_LOCAL_IP=spark-master
+      - SPARK_WORKLOAD=master
+    volumes:
+      - ./data:/opt/spark/data
+      - ~/.aws:/home/spark_user/.aws:ro
+
+  spark-worker:
+    image: apache/spark:3.5.0-scala2.12-java11-python3-r-ubuntu
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    ports:
+      - "8081:8081"  # Spark Worker Web UI
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_DRIVER_MEMORY=1G
+      - SPARK_EXECUTOR_MEMORY=1G
+      - SPARK_WORKLOAD=worker
+      - SPARK_LOCAL_IP=spark-worker
+    volumes:
+      - ./data:/opt/spark/data
+      - ~/.aws:/home/spark_user/.aws:ro
+
+networks:
+  default:
+    driver: bridge

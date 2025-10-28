@@ -1,0 +1,32 @@
+spring:
+  main:
+      allow-bean-definition-overriding: true
+  application:
+    name: myApp
+
+spark:
+    master: spark://localhost:7077
+    app:
+        name: IcebergDemoApp
+
+server:
+  port: 8080
+
+
+iceberg:
+  awsRegion: us-east-1
+  catalog: glue_catalog
+  database: iceberg_demo_db
+  table: orders
+  warehouse: s3://meu-bucket-iceberg-demo/orders/
+
+s3:
+  endpoint: "https://s3.amazonaws.com"
+  access-key: "${AWS_ACCESS_KEY_ID}"
+  secret-key: "${AWS_SECRET_ACCESS_KEY}"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
