@@ -23,25 +23,34 @@ public class SparkController {
     }
 
     @GetMapping("/")
-    public ResponseEntity<List<Map<String, Object>>> query() {
-
+    public ResponseEntity<Map<String, Object>> query() {
         try {
             List<Map<String, Object>> results = sparkService.queryTable();
-            return ResponseEntity.ok(results);
+
+            Map<String, Object> response = Map.of("results", results);
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(Collections.emptyList());
+
+            return ResponseEntity.status(500).body(Map.of(
+                    "message", "Error while querying data: " + e.getMessage()
+            ));
         }
     }
 
     @PostMapping("/")
-    public ResponseEntity<String> insert(
+    public ResponseEntity<Map<String, Object>> insert(
             @RequestBody Map<String, Object> data) {
         try {
             sparkService.insertData(data);
-            return ResponseEntity.ok("Data inserted successfully");
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Data inserted successfully"
+            ));
         } catch (Exception e) {
             log.error(e.getStackTrace().toString() + e.getMessage());
-            return ResponseEntity.status(500).body("Error inserting data: " + e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "message", "Error inserting data: " + e.getMessage()
+            ));
         }
     }
 }

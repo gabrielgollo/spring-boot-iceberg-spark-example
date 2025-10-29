@@ -17,47 +17,59 @@ public class IcebergController {
         this.icebergService = icebergService;
     }
 
-    @GetMapping("/orders")
-    public ResponseEntity<List<Map<String, Object>>> scanAll() {
+    @GetMapping("/")
+    public ResponseEntity<Map<String, Object>> scanAll() {
         try {
             List<Map<String, Object>> results = icebergService.scanAll();
-            return ResponseEntity.ok(results);
+
+            Map<String, Object> response = Map.of("results", results);
+
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(null);
+            Map<String, Object> response = Map.of("message", "Error while scanning data: " + e.getMessage());
+            return ResponseEntity.status(500).body(response);
         }
     }
 
-    @PostMapping("/orders")
-    public ResponseEntity<String> insert(
+    @PostMapping("/")
+    public ResponseEntity<Map<String, Object>> insert(
             @RequestBody Map<String, Object> data) {
         try {
             icebergService.insert(data);
-            return ResponseEntity.ok("Data inserted successfully");
+
+            Map<String, Object> response = Map.of("message", "Data inserted successfully");
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error(e.getStackTrace().toString()+e.getMessage());
-            return ResponseEntity.status(500).body("Error inserting data: " + e);
+
+            Map<String, Object> response = Map.of("message", "Error inserting data: " + e.getMessage());
+            return ResponseEntity.status(500).body(response);
         }
     }
 
-    @PostMapping("/orders/batch")
-    public ResponseEntity<String> insertBatches(
+    @PostMapping("/batch")
+    public ResponseEntity<Map<String, Object>> insertBatches(
             @RequestBody List<Map<String, Object>> data) {
         try {
             icebergService.insertBatch(data);
-            return ResponseEntity.ok("Data inserted successfully");
+            Map<String, Object> response = Map.of("message", "Data inserted successfully");
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error(e.getStackTrace().toString()+e.getMessage());
-            return ResponseEntity.status(500).body("Error inserting data: " + e);
+
+            Map<String, Object> response = Map.of("message", "Error inserting data: " + e.getMessage());
+            return ResponseEntity.status(500).body(response);
         }
     }
 
-    @GetMapping("/orders/filter")
-    public ResponseEntity<List<Map<String, Object>>> getByFieldAndValue(
+    @GetMapping("/filter")
+    public ResponseEntity<Map<String, Object>> getByFieldAndValue(
             @RequestParam String field,
             @RequestParam String value) {
         try {
             List<Map<String, Object>> results = icebergService.findByFieldAndValue(field, value);
-            return ResponseEntity.ok(results);
+            Map<String, Object> response = Map.of("results", results);
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.status(500).body(null);
         }

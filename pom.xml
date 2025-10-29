@@ -55,14 +55,12 @@
 			<scope>test</scope>
 		</dependency>
 
-		<!-- Spark -->
+		<!-- When working with Spark -->
 		<dependency>
 			<groupId>org.apache.spark</groupId>
 			<artifactId>spark-sql_2.12</artifactId>
 			<version>${spark.version}</version>
 		</dependency>
-
-		<!-- Iceberg -->
 		<dependency>
 			<groupId>org.apache.iceberg</groupId>
 			<artifactId>iceberg-spark-runtime-3.5_2.12</artifactId>
@@ -78,6 +76,9 @@
 				</exclusion>
 			</exclusions>
 		</dependency>
+
+
+		<!-- When working only with Apache Iceberg libs -->
 		<dependency>
 			<groupId>org.apache.iceberg</groupId>
 			<artifactId>iceberg-core</artifactId>
@@ -93,16 +94,10 @@
 			<artifactId>iceberg-parquet</artifactId>
 			<version>${iceberg.version}</version>
 		</dependency>
-
 		<dependency>
-			<groupId>software.amazon.awssdk</groupId>
-			<artifactId>bundle</artifactId>
-			<version>${aws.sdk.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>software.amazon.awssdk</groupId>
-			<artifactId>url-connection-client</artifactId>
-			<version>${aws.sdk.version}</version>
+			<groupId>org.apache.iceberg</groupId>
+			<artifactId>iceberg-data</artifactId>
+			<version>${iceberg.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.hadoop</groupId>
@@ -118,6 +113,17 @@
 					<artifactId>*</artifactId>
 				</exclusion>
 			</exclusions>
+		</dependency>
+
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>bundle</artifactId>
+			<version>${aws.sdk.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>url-connection-client</artifactId>
+			<version>${aws.sdk.version}</version>
 		</dependency>
 	</dependencies>
 
