@@ -18,13 +18,24 @@ public class IcebergController {
     }
 
     @GetMapping("/")
-    public ResponseEntity<Map<String, Object>> scanAll() {
+    public ResponseEntity<Map<String, Object>> scanAll(
+            @RequestParam (required = false) String partitionFieldName,
+            @RequestParam(required = false) String partitionValue
+    ) {
         try {
-            List<Map<String, Object>> results = icebergService.scanAll();
+            List<Map<String, Object>> results;
 
-            Map<String, Object> response = Map.of("results", results);
+            if (partitionValue != null && partitionFieldName != null) {
+                Map<String, Object> options = Map.of(
+                        "partitionFieldName", partitionFieldName,
+                        "partitionValue", partitionValue
+                );
+                results = icebergService.scanAll(options);
+            } else {
+                results = icebergService.scanAll();
+            }
 
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(Map.of("results", results));
         } catch (Exception e) {
             Map<String, Object> response = Map.of("message", "Error while scanning data: " + e.getMessage());
             return ResponseEntity.status(500).body(response);
@@ -33,7 +44,10 @@ public class IcebergController {
 
     @PostMapping("/")
     public ResponseEntity<Map<String, Object>> insert(
-            @RequestBody Map<String, Object> data) {
+            @RequestParam (required = false) String partitionFieldName,
+            @RequestParam(required = false) String partitionValue,
+            @RequestBody Map<String, Object> data
+    ) {
         try {
             icebergService.insert(data);
 
@@ -49,9 +63,20 @@ public class IcebergController {
 
     @PostMapping("/batch")
     public ResponseEntity<Map<String, Object>> insertBatches(
-            @RequestBody List<Map<String, Object>> data) {
+            @RequestParam (required = false) String partitionFieldName,
+            @RequestBody List<Map<String, Object>> data
+    ) {
         try {
-            icebergService.insertBatch(data);
+
+            if(partitionFieldName != null){
+                log.info("Using partition field name: " + partitionFieldName);
+                Map<String, Object> options = Map.of("partitionFieldName", "order_date");
+                icebergService.insertBatch(data, options);
+            } else {
+                log.info("No partition field name provided");
+                icebergService.insertBatch(data);
+            }
+
             Map<String, Object> response = Map.of("message", "Data inserted successfully");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -65,9 +90,20 @@ public class IcebergController {
     @GetMapping("/filter")
     public ResponseEntity<Map<String, Object>> getByFieldAndValue(
             @RequestParam String field,
-            @RequestParam String value) {
+            @RequestParam String value,
+            @RequestParam (required = false) String partitionFieldName,
+            @RequestParam(required = false) String partitionValue
+    ) {
         try {
-            List<Map<String, Object>> results = icebergService.findByFieldAndValue(field, value);
+            Map<String, Object> options = null;
+            if (partitionValue != null && partitionFieldName != null) {
+                options = Map.of(
+                        "partitionFieldName", partitionFieldName,
+                        "partitionValue", partitionValue
+                );
+            }
+
+            List<Map<String, Object>> results = icebergService.findByFieldAndValues(field, List.of(value), options);
             Map<String, Object> response = Map.of("results", results);
             return ResponseEntity.ok(response);
         } catch (Exception e) {

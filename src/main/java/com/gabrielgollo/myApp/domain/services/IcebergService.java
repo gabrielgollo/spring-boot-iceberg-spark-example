@@ -9,13 +9,17 @@ import org.apache.iceberg.data.GenericAppenderFactory;
 import org.apache.iceberg.data.IcebergGenerics;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileAppender;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.*;
 
 @Slf4j
@@ -65,8 +69,74 @@ public class IcebergService {
     }
 
     public void insertBatch(List<Map<String, Object>> batchData) {
+        insertBatch(batchData, null);
+    }
+
+    public void insertBatch(List<Map<String, Object>> batchData, Map<String, Object> options) {
         Table table = getTable();
 
+        try {
+            String partitionFieldName = options != null ? (String) options.get("partitionFieldName") : null;
+
+            if (partitionFieldName == null) {
+                insertBatchWithoutPartition(batchData, table);
+                return;
+            }
+
+            Map<Object, List<Record>> partitionedRecords = new HashMap<>();
+            for (Map<String, Object> data : batchData) {
+                if (data.containsKey(partitionFieldName)) {
+                    Object value = data.get(partitionFieldName);
+                    if (value instanceof String) {
+                        data.put(partitionFieldName, java.time.LocalDate.parse((String) value));
+                    }
+                }
+
+                Record record = createRecord(table.schema(), data);
+                Object partitionValue = record.getField(partitionFieldName);
+                partitionedRecords.computeIfAbsent(partitionValue, k -> new ArrayList<>()).add(record);
+            }
+
+            GenericAppenderFactory appenderFactory = new GenericAppenderFactory(table.schema(), table.spec());
+            AppendFiles appendFiles = table.newAppend();
+
+            for (Map.Entry<Object, List<Record>> entry : partitionedRecords.entrySet()) {
+                Object partitionValue = entry.getKey();
+                List<Record> records = entry.getValue();
+
+                String filename = "data-" + UUID.randomUUID() + ".parquet";
+                String filePath = table.location() + "/data/" + filename;
+                OutputFile outputFile = table.io().newOutputFile(filePath);
+
+                long recordCount = 0;
+                try (FileAppender<Record> appender = appenderFactory.newAppender(outputFile, org.apache.iceberg.FileFormat.PARQUET)) {
+                    for (Record record : records) {
+                        appender.add(record);
+                        recordCount++;
+                    }
+                }
+
+                long fileSize = table.io().newInputFile(filePath).getLength();
+                DataFile dataFile = DataFiles.builder(table.spec())
+                        .withPath(filePath)
+                        .withFormat(org.apache.iceberg.FileFormat.PARQUET)
+                        .withFileSizeInBytes(fileSize)
+                        .withRecordCount(recordCount)
+                        .build();
+
+                appendFiles.appendFile(dataFile);
+                log.info("Prepared {} records for partition {}", recordCount, partitionValue);
+            }
+
+            appendFiles.commit();
+            log.info("Inserted batch successfully, total partitions: {}", partitionedRecords.size());
+
+        } catch (Exception e) {
+            throw new RuntimeException("Error inserting batch: " + e.getMessage(), e);
+        }
+    }
+
+    public void insertBatchWithoutPartition(List<Map<String, Object>> batchData, Table table) {
         try {
             List<Record> records = new ArrayList<>();
             for (Map<String, Object> data : batchData) {
@@ -106,51 +176,115 @@ public class IcebergService {
         } catch (Exception e) {
             throw new RuntimeException("Error inserting batch: " + e.getMessage(), e);
         }
-    }public List<Map<String, Object>> findByFieldAndValues(String field, List<String> values) {
+    }
+
+    public List<Map<String, Object>> findByPartitionAndValues(String partitionField, String partitionValue, String field, List<String> values) {
         Table table = getTable();
         List<Map<String, Object>> results = new ArrayList<>();
 
-        try (CloseableIterable<Record> records = IcebergGenerics.read(table).build()) {
-            for (Record record : records) {
-                Object fieldValue = getFieldValue(record, field);
-                if (fieldValue != null && values.contains(fieldValue.toString())) {
+        try {
+            Expression filter = Expressions.and(
+                    Expressions.equal(partitionField, partitionValue),
+                    Expressions.in(field, values)
+            );
+
+            try (CloseableIterable<Record> records = IcebergGenerics.read(table)
+                    .where(filter)
+                    .build()) {
+
+                for (Record record : records) {
                     results.add(recordToMap(record));
                 }
             }
 
-            log.info("Found {} records for field '{}' in list {}", results.size(), field, values);
+            log.info("Found {} records for partition '{}'={} and field '{}' in {}",
+                    results.size(), partitionField, partitionValue, field, values);
+
         } catch (Exception e) {
-            throw new RuntimeException("Search error (multiple values): " + e.getMessage(), e);
+            throw new RuntimeException("Search error (partition + multiple values): " + e.getMessage(), e);
         }
 
         return results;
     }
 
-    private Object getFieldValue(Record record, String field) {
-        Schema schema = record.struct().asSchema();
-        for (int i = 0; i < schema.columns().size(); i++) {
-            if (schema.columns().get(i).name().equals(field)) {
-                return record.get(i);
-            }
-        }
-        return null;
-    }
-
-    public List<Map<String, Object>> findByFieldAndValue(String field, String value) {
+    public List<Map<String, Object>> findByFieldAndValues(
+            String field,
+            List<String> values,
+            Map<String, Object> options
+    ) {
         Table table = getTable();
         List<Map<String, Object>> results = new ArrayList<>();
 
         try {
-            try (CloseableIterable<Record> records = IcebergGenerics.read(table).build()) {
-                for (Record record : records) {
-                    if (recordMatchesField(record, field, value)) {
-                        results.add(recordToMap(record));
+            Type fieldType = table.schema().findType(field);
+            if (fieldType == null) {
+                throw new RuntimeException("Field not found in schema: " + field);
+            }
+
+            List<Object> parsedValues = new ArrayList<>();
+
+            for (String v : values) {
+                Object val = v;
+
+                switch (fieldType.typeId()) {
+                    case INTEGER:
+                        val = Integer.parseInt(v);
+                        break;
+                    case LONG:
+                        val = Long.parseLong(v);
+                        break;
+                    case FLOAT:
+                        val = Float.parseFloat(v);
+                        break;
+                    case DOUBLE:
+                        val = Double.parseDouble(v);
+                        break;
+                    case BOOLEAN:
+                        val = Boolean.parseBoolean(v);
+                        break;
+                    case DATE:
+                        val = (int) LocalDate.parse(v).toEpochDay();
+                        break;
+                    case TIMESTAMP:
+                        val = java.time.Instant.parse(v);
+                        break;
+                    default:
+                        break;
+                }
+
+                parsedValues.add(val);
+            }
+
+            Expression filter = Expressions.in(field, parsedValues);
+            var readBuilder = IcebergGenerics.read(table).where(filter);
+
+            if (options != null && options.containsKey("partitionFieldName") && options.containsKey("partitionValue")) {
+                String partitionField = (String) options.get("partitionFieldName");
+                Object partitionValue = options.get("partitionValue");
+
+                Type partitionType = table.schema().findType(partitionField);
+                if (partitionType != null) {
+                    if (partitionType.typeId() == Type.TypeID.DATE && partitionValue instanceof String) {
+                        partitionValue = (int) LocalDate.parse((String) partitionValue).toEpochDay();
+                    } else if (partitionType.typeId() == Type.TypeID.LONG && partitionValue instanceof String) {
+                        partitionValue = Long.parseLong((String) partitionValue);
+                    } else if (partitionType.typeId() == Type.TypeID.INTEGER && partitionValue instanceof String) {
+                        partitionValue = Integer.parseInt((String) partitionValue);
                     }
+                }
+
+                Expression partitionFilter = Expressions.equal(partitionField, partitionValue);
+                filter = Expressions.and(filter, partitionFilter);
+                readBuilder = IcebergGenerics.read(table).where(filter);
+            }
+
+            try (CloseableIterable<Record> records = readBuilder.build()) {
+                for (Record record : records) {
+                    results.add(recordToMap(record));
                 }
             }
 
-            log.info("Found {} records", results.size());
-
+            log.info("Found {} records where {} in {}, with options={}", results.size(), field, parsedValues, options);
         } catch (Exception e) {
             throw new RuntimeException("Search error: " + e.getMessage(), e);
         }
@@ -158,13 +292,49 @@ public class IcebergService {
         return results;
     }
 
+
+
     public List<Map<String, Object>> scanAll() {
+        return scanAll(null);
+    }
+
+    public List<Map<String, Object>> scanAll(Map<String, Object> options) {
         Table table = getTable();
         List<Map<String, Object>> results = new ArrayList<>();
 
-        try (CloseableIterable<Record> records = IcebergGenerics.read(table).build()) {
-            for (Record record : records) {
-                results.add(recordToMap(record));
+        try {
+            var readBuilder = IcebergGenerics.read(table);
+
+            if (options != null && options.containsKey("partitionFieldName") && options.containsKey("partitionValue")) {
+                String partitionField = (String) options.get("partitionFieldName");
+                Object partitionValue = options.get("partitionValue");
+
+                if (partitionValue instanceof String) {
+                    try {
+                        partitionValue = java.time.LocalDate.parse((String) partitionValue);
+                    } catch (Exception ignore) {
+                    }
+                }
+
+                if (partitionValue instanceof java.time.LocalDate) {
+                    java.time.LocalDate date = (java.time.LocalDate) partitionValue;
+                    long daysSinceEpoch = date.toEpochDay(); // Iceberg DATE = int de dias desde 1970-01-01
+                    partitionValue = (int) daysSinceEpoch;
+                }
+
+                Expression filter = Expressions.equal(partitionField, partitionValue);
+                readBuilder = readBuilder.where(filter);
+
+
+                log.info("Scanning with partition filter: {} = {}", partitionField, partitionValue);
+            } else {
+                log.info("Scanning full table (no partition filter)");
+            }
+
+            try (CloseableIterable<Record> records = readBuilder.build()) {
+                for (Record record : records) {
+                    results.add(recordToMap(record));
+                }
             }
 
             log.info("Total records found: {}", results.size());
