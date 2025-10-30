@@ -106,6 +106,34 @@ public class IcebergService {
         } catch (Exception e) {
             throw new RuntimeException("Error inserting batch: " + e.getMessage(), e);
         }
+    }public List<Map<String, Object>> findByFieldAndValues(String field, List<String> values) {
+        Table table = getTable();
+        List<Map<String, Object>> results = new ArrayList<>();
+
+        try (CloseableIterable<Record> records = IcebergGenerics.read(table).build()) {
+            for (Record record : records) {
+                Object fieldValue = getFieldValue(record, field);
+                if (fieldValue != null && values.contains(fieldValue.toString())) {
+                    results.add(recordToMap(record));
+                }
+            }
+
+            log.info("Found {} records for field '{}' in list {}", results.size(), field, values);
+        } catch (Exception e) {
+            throw new RuntimeException("Search error (multiple values): " + e.getMessage(), e);
+        }
+
+        return results;
+    }
+
+    private Object getFieldValue(Record record, String field) {
+        Schema schema = record.struct().asSchema();
+        for (int i = 0; i < schema.columns().size(); i++) {
+            if (schema.columns().get(i).name().equals(field)) {
+                return record.get(i);
+            }
+        }
+        return null;
     }
 
     public List<Map<String, Object>> findByFieldAndValue(String field, String value) {
