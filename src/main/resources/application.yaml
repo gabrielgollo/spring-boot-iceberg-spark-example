@@ -17,8 +17,8 @@ iceberg:
   awsRegion: us-east-1
   catalog: glue_catalog
   database: iceberg_demo_db
-  table: orders_partitioned
-  warehouse: s3://meu-bucket-iceberg-demo/orders_partitioned/
+  table: orders_partitioned_v2
+  warehouse: s3://meu-bucket-iceberg-demo/orders_partitioned_v2/
 
 s3:
   endpoint: "https://s3.amazonaws.com"

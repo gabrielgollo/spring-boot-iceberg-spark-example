@@ -31,6 +31,8 @@ public class IcebergService {
     private String database;
     private String tableName;
 
+    private static long fileSequence = 0L;
+
     public IcebergService(
             @Value("${iceberg.warehouse}") String warehousePath,
             @Value("${iceberg.awsRegion}") String region,
@@ -44,6 +46,15 @@ public class IcebergService {
         this.catalog = createGlueCatalog();
     }
 
+    public static synchronized String generateFileName() {
+        String partitionSeq = String.format("%05d", 0);   // geralmente 00000
+        String taskId = String.format("%d", 0);           // task ou writer id
+        String uuid = UUID.randomUUID().toString();        // id único
+        String otherId = String.format("%d", 0);          // outro id se necessário
+        String fileSeq = String.format("%05d", fileSequence++); // contador incremental local
+
+        return String.format("%s-%s-%s-%s-%s.parquet", partitionSeq, taskId, uuid, otherId, fileSeq);
+    }
     private Catalog createGlueCatalog() {
         GlueCatalog catalog = new GlueCatalog();
 
@@ -104,12 +115,29 @@ public class IcebergService {
                 Object partitionValue = entry.getKey();
                 List<Record> records = entry.getValue();
 
-                String filename = "data-" + UUID.randomUUID() + ".parquet";
-                String filePath = table.location() + "/data/" + filename;
+                PartitionSpec spec = table.spec();
+                PartitionData partitionData = new PartitionData(spec.partitionType());
+
+                // pega o tipo real da coluna de partição do schema
+                Type partitionType = table.schema().findType(partitionFieldName);
+                Object value = partitionValue;
+
+                if (partitionType.typeId() == Type.TypeID.DATE && value instanceof LocalDate) {
+                    value = (int) ((LocalDate) value).toEpochDay();
+                } else if (partitionType.typeId() == Type.TypeID.TIMESTAMP && value instanceof java.time.Instant) {
+                    value = ((java.time.Instant) value).toEpochMilli() * 1000; // micros
+                }
+
+                partitionData.set(0, value);
+
+                // cria o arquivo Parquet via Iceberg
+                String filename = generateFileName();
+                String filePath = table.locationProvider().newDataLocation(spec, partitionData, filename).replaceAll("/data/[^/]+/", "/data/");;
                 OutputFile outputFile = table.io().newOutputFile(filePath);
 
+                // escreve os registros no arquivo
                 long recordCount = 0;
-                try (FileAppender<Record> appender = appenderFactory.newAppender(outputFile, org.apache.iceberg.FileFormat.PARQUET)) {
+                try (FileAppender<Record> appender = appenderFactory.newAppender(outputFile, FileFormat.PARQUET)) {
                     for (Record record : records) {
                         appender.add(record);
                         recordCount++;
@@ -117,14 +145,18 @@ public class IcebergService {
                 }
 
                 long fileSize = table.io().newInputFile(filePath).getLength();
-                DataFile dataFile = DataFiles.builder(table.spec())
+
+                DataFile dataFile = DataFiles.builder(spec)
                         .withPath(filePath)
-                        .withFormat(org.apache.iceberg.FileFormat.PARQUET)
+                        .withPartitionPath(spec.partitionToPath(partitionData))
+                        .withPartition(partitionData)
+                        .withFormat(FileFormat.PARQUET)
                         .withFileSizeInBytes(fileSize)
                         .withRecordCount(recordCount)
                         .build();
 
                 appendFiles.appendFile(dataFile);
+
                 log.info("Prepared {} records for partition {}", recordCount, partitionValue);
             }
 
